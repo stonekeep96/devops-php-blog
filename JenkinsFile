@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         DOCKER_IMAGE = "user/php_blog_proj" 
-        DOCKER_TAG = "latest"  // Docker imajı etiketi
+        DOCKER_TAG = "latest" 
         SONARQUBE_URL = "http://sonarqube.example.com"
         SONARQUBE_PROJECT_KEY = "php-blog-project" 
         SONARQUBE_AUTH_TOKEN = credentials('sonarqube-auth-token') 
