@@ -1,0 +1,109 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKER_IMAGE = "user/php_blog_proj" 
+        DOCKER_TAG = "latest"  // Docker imajı etiketi
+        SONARQUBE_URL = "http://sonarqube.example.com"
+        SONARQUBE_PROJECT_KEY = "php-blog-project" 
+        SONARQUBE_AUTH_TOKEN = credentials('sonarqube-auth-token') 
+        K8S_CLUSTER = "my-k8s-cluster" 
+        KUBECONFIG = credentials('kubeconfig') 
+        DOCKERFILE_PATH = "Dockerfile" 
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                git url: 'https://github.com/symfony/demo/archive/refs/tags/v2.0.2.zip', branch: 'main'
+            }
+        }
+
+        stage('Install Composer 2.5') {
+            steps {
+                script {
+                    sh 'curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer'
+                    sh 'composer self-update 2.5'
+					sh 'composer --version'
+                }
+            }
+        }
+
+        stage('Composer Install') {
+            steps {
+                script {
+                    sh 'composer install --no-interaction'
+                }
+            }
+        }
+
+        stage('Phpunit') {
+            steps {
+                script {
+                    sh 'bin/phpunit --log-junit test-results/test-results.xml'
+                }
+            }
+        }
+
+        stage('SonarQube') {
+            steps {
+                script {
+                    withSonarQubeEnv('SonarQube') {
+                        sh '''
+                            ./vendor/bin/sonar-scanner \
+                            -Dsonar.projectKey=$SONARQUBE_PROJECT_KEY \
+                            -Dsonar.sources=. \
+                            -Dsonar.host.url=$SONARQUBE_URL \
+                            -Dsonar.login=$SONARQUBE_AUTH_TOKEN
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Docker Image') {
+            steps {
+                script {
+                    sh """
+                        docker build -t $DOCKER_IMAGE:$DOCKER_TAG -f $DOCKERFILE_PATH .
+                    """
+                }
+            }
+        }
+
+        stage('Docker Hub Publish') {
+            steps {
+                script {
+                    sh '''
+                        docker login -u $DOCKER_USERNAME -p $DOCKER_PASSWORD
+                        docker push $DOCKER_IMAGE:$DOCKER_TAG
+                    '''
+                }
+            }
+        }
+
+        stage('Kubernetes Deployment') {
+            steps {
+                script {
+                    withKubeConfig(credentialsId: 'kubeconfig') {
+                        sh '''
+                            helm upgrade --install php-blog-app ./helm-chart --set image.repository=$DOCKER_IMAGE --set image.tag=$DOCKER_TAG --namespace default
+                        '''
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs() 
+        }
+        success {
+            echo 'Pipeline başarıyla tamamlandı!'
+        }
+        failure {
+            echo 'Pipeline başarısız oldu!'
+        }
+    }
+}
